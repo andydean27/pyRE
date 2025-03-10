@@ -28,7 +28,7 @@ import pyRE
 # Example function call
 result = pyRE.calculate_reservoir_property(param1, param2)
 print(result) -->
-```
+<!-- ``` -->
 
 ## Contributing
 

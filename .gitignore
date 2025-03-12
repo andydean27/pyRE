@@ -1,2 +1,10 @@
 
-.venv
+*.venv
+*__pycache__
+*.pytest_cache
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+*.pyzw

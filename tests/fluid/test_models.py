@@ -1,5 +1,5 @@
 import pytest
-from pyRE.fluids.models import *
+from pyRE.fluid.models import *
 
 #------------------------------------------------------------
 #   Water Tests

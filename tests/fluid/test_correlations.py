@@ -1,8 +1,8 @@
 
 
 import pytest
-from pyRE.fluids.models import gas
-from pyRE.fluids.correlations import STANDINGKATZ, LEEGONZALEZEAKIN
+from pyRE.fluid.models import gas
+from pyRE.fluid.correlations import STANDINGKATZ, LEEGONZALEZEAKIN
 
 def test_STANDINGKATZ():
     # Create a mock gas object

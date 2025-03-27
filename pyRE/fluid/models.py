@@ -1,7 +1,7 @@
 from pyRE.fluid.correlations import *
 import matplotlib.pyplot as plt
 
-class water:
+class Water:
     """
     Water object class for incompressible water
     
@@ -33,10 +33,10 @@ class water:
     def load_from_json():
         pass
 
-class oil:
+class Oil:
     pass
 
-class gas:
+class Gas:
     """
     Gas object class
     

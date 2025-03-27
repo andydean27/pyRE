@@ -1,12 +1,12 @@
 
 
 import pytest
-from pyRE.fluid.models import gas
+from pyRE.fluid.models import Gas
 from pyRE.fluid.correlations import STANDINGKATZ, LEEGONZALEZEAKIN
 
 def test_STANDINGKATZ():
     # Create a mock gas object
-    g = gas(Pc=1000, Tc=500, M=20, z_correlation=STANDINGKATZ, mu_correlation=LEEGONZALEZEAKIN)
+    g = Gas(Pc=1000, Tc=500, M=20, z_correlation=STANDINGKATZ, mu_correlation=LEEGONZALEZEAKIN)
     
     # Test the STANDINGKATZ function
     P = 100
@@ -16,7 +16,7 @@ def test_STANDINGKATZ():
 
 def test_LEEGONZALEZEAKIN():
     # Create a mock gas object
-    g = gas(Pc=1000, Tc=500, M=20, z_correlation=STANDINGKATZ, mu_correlation=LEEGONZALEZEAKIN)
+    g = Gas(Pc=1000, Tc=500, M=20, z_correlation=STANDINGKATZ, mu_correlation=LEEGONZALEZEAKIN)
     
     # Test the LEEGONZALEZEAKIN function
     P = 100

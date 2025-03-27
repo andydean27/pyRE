@@ -1,4 +1,4 @@
-from pyRE.fluids.correlations import *
+from pyRE.fluid.correlations import *
 import matplotlib.pyplot as plt
 
 class water:
@@ -14,9 +14,9 @@ class water:
 
     def __init__(
             self,
-            Bw: float,
-            mu: float,
-            rho: float
+            Bw: float = 1,
+            mu: float = 0.75,
+            rho: float = 1
             ):
         """
         Initialise water object
@@ -29,6 +29,9 @@ class water:
         self.Bw = Bw
         self.mu = mu
         self.rho = rho
+    
+    def load_from_json():
+        pass
 
 class oil:
     pass
@@ -50,9 +53,9 @@ class gas:
 
     def __init__(
             self,
-            Pc: float,
-            Tc: float,
-            M: float,
+            Pc: float = 673,
+            Tc: float = 343,
+            M: float = 16.04,
             z_correlation = STANDINGKATZ,
             mu_correlation = LEEGONZALEZEAKIN
             ):
@@ -143,4 +146,7 @@ class gas:
             rho : float : Density [g/cm3]
         """
         return 144 * P * self.M / self.z(P, T) / 1545.349 / T
+    
+    def load_from_json():
+        pass
     

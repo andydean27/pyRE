@@ -95,5 +95,11 @@ class CoalSeamGasReservoir(Reservoir):
         if self.oil_saturation != 0.0:
             raise ValueError("Oil saturation must be 0.0 for CoalSeamGasReservoir.")
 
-    def calculate_adsorbed_gas_in_place(self):
-        pass
+    def calculate_in_place_volumes(self):
+
+        adsorbed_gas_in_place = 0.0013597 * self.area * self.thickness * self.net_to_gross * self.rock.density * self.rock.gas_content * (1 - self.rock.ash_fraction - self.rock.moisture_fraction)
+
+        return {
+            **super().calculate_in_place_volumes(),
+            "adsorbed_gas_in_place": adsorbed_gas_in_place
+        }

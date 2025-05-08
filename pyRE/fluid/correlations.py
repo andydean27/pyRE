@@ -1,5 +1,6 @@
 import math
 
+
 # Z-factor correlations
 
 def STANDINGKATZ(P: float, T: float, gas_obj):
@@ -13,8 +14,8 @@ def STANDINGKATZ(P: float, T: float, gas_obj):
     """
 
     # Calculate pseudoreduced pressure and temperature
-    Pr = P / gas_obj.Pc
-    Tr = T / gas_obj.Tc
+    Pr = P / gas_obj.critical_pressure
+    Tr = T / gas_obj.critical_temperature
 
     # Standing-Katz correlation
     a = 1.39*(Tr-0.92)**0.5 - 0.36*Tr - 0.101
@@ -42,12 +43,12 @@ def LEEGONZALEZEAKIN(P: float, T: float, gas_obj):
         T : float : Temperature [Rankine]
         gas_obj : gas : Gas model
     """
-    x = 2.57 + 1914.5 / T + 0.0095 * gas_obj.M
+    x = 2.57 + 1914.5 / T + 0.0095 * gas_obj.molar_mass
     Y = 1.11 + 0.04 * x
-    k = (7.77 + 0.0063 * gas_obj.M) * T ** 1.5 / (122.4 + 12.8 * gas_obj.M + T)
+    k = (7.77 + 0.0063 * gas_obj.molar_mass) * T ** 1.5 / (122.4 + 12.8 * gas_obj.molar_mass + T)
 
 
     # Calculate gas viscosity
-    mu = k * math.exp(x * ((gas_obj.rho(P, T) * 0.016) ** Y)) * 0.0001
+    mu = k * math.exp(x * ((gas_obj.density(P, T) * 0.016) ** Y)) * 0.0001
 
     return mu

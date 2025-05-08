@@ -1,5 +1,4 @@
 from pyRE.fluid.correlations import *
-import matplotlib.pyplot as plt
 
 class Water:
     """
@@ -7,16 +6,16 @@ class Water:
     
     Parameters
     
-    Bw : float : Formation volume factor [bbl/STB]
-    mu : float : Viscosity [cP]
-    rho : float : Density [g/cm3]
+    formation_volume_factor : float : Formation volume factor [bbl/STB]
+    viscosity : float : Viscosity [cP]
+    density : float : Density [g/cm3]
     """
 
     def __init__(
             self,
-            Bw: float = 1,
-            mu: float = 0.75,
-            rho: float = 1
+            formation_volume_factor: float = 1,
+            viscosity: float = 0.75,
+            density: float = 1
             ):
         """
         Initialise water object
@@ -24,14 +23,12 @@ class Water:
         Arguments
             Bw : float : Formation volume factor [bbl/STB]
             mu : float : Viscosity [cP]
-            rho : float : Density [g/cm3]
+            density : float : Density [g/cm3]
         """
-        self.Bw = Bw
-        self.mu = mu
-        self.rho = rho
-    
-    def load_from_json():
-        pass
+        self.formation_volume_factor = formation_volume_factor
+        self.viscosity = viscosity
+        self.density = density
+
 
 class Oil:
     pass
@@ -42,111 +39,154 @@ class Gas:
     
     Parameters
     
-    Pc : float : Critical pressure [psia]
-    Tc : float : Critical temperature [Rankine]
-    M : float : Molar mass [g/mol]
+    critical_pressure : float : Critical pressure [psia]
+    critical_temperature : float : Critical temperature [Rankine]
+    molar_mass : float : Molar mass [g/mol]
     z_correlation : function : Z-factor correlation
         options: STANDINGKATZ
-    mu_correlation : function : Viscosity correlation
+    viscosity_correlation : function : Viscosity correlation
         options: LEAGONZALEZEAKIN
     """
 
     def __init__(
             self,
-            Pc: float = 673,
-            Tc: float = 343,
-            M: float = 16.04,
+            critical_pressure: float = 673,
+            critical_temperature: float = 343,
+            molar_mass: float = 16.04,
             z_correlation = STANDINGKATZ,
-            mu_correlation = LEEGONZALEZEAKIN
+            viscosity_correlation = LEEGONZALEZEAKIN
             ):
         """
         Initialise gas object
         
         Arguments
-            Pc : float : Critical pressure [psia]
-            Tc : float : Critical temperature [Rankine]
-            M : float : Molar mass [g/mol]
+            critical_pressure : float : Critical pressure [psia]
+            critical_temperature : float : Critical temperature [Rankine]
+            molar_mass : float : Molar mass [g/mol]
             z_correlation (optional) : function : Z-factor correlation
                 options: STANDINGKATZ
-            mu_correlation (optional) : function : Viscosity correlation
+            viscosity_correlation (optional) : function : Viscosity correlation
                 options: LEAGONZALEZEAKIN
         """
-        self.Pc = Pc
-        self.Tc = Tc
-        self.M = M
+        self.critical_pressure = critical_pressure
+        self.critical_temperature = critical_temperature
+        self.molar_mass = molar_mass
         self.z_correlation = z_correlation
-        self.mu_correlation = mu_correlation
+        self.viscosity_correlation = viscosity_correlation
 
     def z(
             self,
-            P: float,
-            T: float,
+            pressure: float,
+            temperature: float,
             ):
         """
         Calculate z-factor
 
         Arguments
-            P : float : Pressure [psia]
-            T : float : Temperature [Rankine]
+            pressure : float : Pressure [psia]
+            temperature : float : Temperature [Rankine]
 
         Returns
             z : float : z-factor
         """
-        return self.z_correlation(P, T, self)
+        return self.z_correlation(pressure, temperature, self)
     
-    def mu(
+    def viscosity(
             self,
-            P: float,
-            T: float,
+            pressure: float,
+            temperature: float,
             ):
         """
         Calculate gas viscosity
         
         Arguments
-            P : float : Pressure [psia]
-            T : float : Temperature [Rankine]
+            pressure : float : Pressure [psia]
+            temperature : float : Temperature [Rankine]
 
         Returns
-            mu : float : Viscosity [cP]
+            viscosity : float : Viscosity [cP]
         """
         
-        return self.mu_correlation(P, T, self)
+        return self.viscosity_correlation(pressure, temperature, self)
     
-    def Bg(
+    def formation_volume_factor(
             self,
-            P: float,
-            T: float,
+            pressure: float,
+            temperature: float,
             ):
         """
         Calculate gas formation volume factor
 
         Arguments
-            P : float : Pressure [psia]
-            T : float : Temperature [Rankine]
+            pressure : float : Pressure [psia]
+            temperature : float : Temperature [Rankine]
 
         Returns
             Bg : float : Formation volume factor [bbl/SCF]
         """
         
-        return 0.0283*self.z(P, T)*T/P
+        return 0.0283*self.z(pressure, temperature)*temperature/pressure
     
-    def rho(
+    def density(
             self,
-            P: float,
-            T: float,
+            pressure: float,
+            temperature: float,
             ):
         """
         Calculate gas density
+        
+        Arguments
+            pressure : float : Pressure [psia]
+            temperature : float : Temperature [Rankine]
+
+        Returns
+            density : float : Density [g/cm3]
+        """
+        return 144 * pressure * self.molar_mass / self.z(pressure, temperature) / 1545.349 / temperature
+    
+    def compressibility(
+            self,
+            pressure: float,
+            temperature: float,
+            ):
+        """
+        Calculate gas compressibility
         
         Arguments
             P : float : Pressure [psia]
             T : float : Temperature [Rankine]
 
         Returns
-            rho : float : Density [g/cm3]
+            Compressibility : float : Compressibility [1/psi]
+              = 1/p - 1/z (dz/dp)_T
+              = 1/p for pressures under 3000psia
         """
-        return 144 * P * self.M / self.z(P, T) / 1545.349 / T
+        if pressure <= 3000:
+            return 1/pressure
+
+        dp = 0.01
+        derivative = (self.z(pressure + 0.01, temperature) - self.z(pressure - 0.01, temperature)) / (2*dp)
+        
+        return 1/pressure - 1/self.z(pressure, temperature) * derivative
     
-    def load_from_json():
+
+    def pseudo_pressure(
+            self,
+            pressure: float,
+            temperature: float,
+            ):
+        """
+        TODO:
+        Calculate pseudopressure
+        
+        Arguments
+            P : float : Pressure [psia]
+            T : float : Temperature [Rankine]
+
+        Returns
+            Pseudo-pressure : float : Pseudopressure
+        """
         pass
+
+
     

@@ -122,7 +122,7 @@ class Gas:
             temperature : float : Temperature [Rankine]
 
         Returns
-            Bg : float : Formation volume factor [bbl/SCF]
+            Bg : float : Formation volume factor [rcf/SCF]
         """
         
         return 0.0283*self.z(pressure, temperature)*temperature/pressure

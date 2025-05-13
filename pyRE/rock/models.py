@@ -17,7 +17,7 @@ class Rock:
         self.compressibility = compressibility
 
 
-class ConventionalRock(Rock):
+class Conventional(Rock):
     """
     Rock properties for conventional reservoirs.
     """
@@ -29,9 +29,15 @@ class ConventionalRock(Rock):
         super().__init__(*args, **kwargs)
 
 
-class CoalRock(Rock):
+class Coal(Rock):
     """
     Rock properties for coal seam reservoirs.
+    This class inherits from the Rock class and adds specific properties for coal.
+
+    Arguments
+        gas_content : float : Gas content in scf/ton
+        langmuir_pressure : float : Langmuir pressure in psia
+        langmuir_volume : float : Langmuir volume in scf/ton (dry ash-free basis)
     """
     def __init__(
             self, 

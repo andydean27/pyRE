@@ -92,7 +92,7 @@ class Reservoir:
 
         oil_in_place = 0 # TODO
 
-        gas_in_place = 0.043560 * self.area * self.thickness * self.net_to_gross * self.rock.porosity * self.initial_gas_saturation / self.gas.formation_volume_factor(self.initial_pressure, self.initial_temperature)
+        gas_in_place = self.pore_volume/1000000 * self.initial_gas_saturation / self.gas.formation_volume_factor(self.initial_pressure, self.initial_temperature)
 
         water_inplace = self.pore_volume/5.615 * self.initial_water_saturation / self.water.formation_volume_factor
 
@@ -141,8 +141,8 @@ class CoalSeamGasReservoir(Reservoir):
         temperature = temperature or self.initial_temperature
 
         # Calculate sorption compressibility using the Langmuir isotherm
-                # 0.02787 is a conversion from g/cc to ton/scf
-        sorption_compressibility = 0.02787*(
+                # 0.0312 is a conversion from g/cc to ton/scf
+        sorption_compressibility = 0.0312*(
             (self.gas.formation_volume_factor(pressure, temperature)*self.rock.langmuir_volume*(1-self.rock.ash_fraction-self.rock.moisture_fraction)*self.rock.density*self.rock.langmuir_pressure)/
             (self.rock.porosity*(pressure + self.rock.langmuir_pressure)**2)
         )
@@ -188,11 +188,11 @@ class CoalSeamGasReservoir(Reservoir):
             - cumulative_water_production (float): Cumulative water production [bbl].
         
         - method (str): Method to use for the material balance calculation. 
-                Options are "modified_king", "jensen_smith".
+                Options are "modified_king", "jensen_smith", clarkson_mcgovern.
 
         """
         from sklearn.linear_model import LinearRegression
-        valid_methods = ["modified_king", "jensen_smith"]
+        valid_methods = ["modified_king", "jensen_smith", "clarkson_mcgovern"]
 
         # Check if the required columns are present in the DataFrame
         required_columns = ["pressure", "cumulative_gas_production", "cumulative_water_production"]
@@ -202,16 +202,19 @@ class CoalSeamGasReservoir(Reservoir):
 
         # Calculate the material balance using the specified method
         if method == "modified_king":
-            result = self.modified_king_material_balance(data)
+            result = self._modified_king_material_balance(data)
         elif method == "jensen_smith":
-            result = self.jensen_smith_material_balance(data)
+            result = self._jensen_smith_material_balance(data)
+        elif method == "clarkson_mcgovern":
+            result = self._clarkson_mcgovern_material_balance(data)
         else:
             raise ValueError(f"Invalid method: {method}. Valid options are: {', '.join(valid_methods)}")
         
         # Perform linear regression on the material balance data
         y_identifier = {
             "modified_king": "p/z*",
-            "jensen_smith": "p/(p+p_L)"
+            "jensen_smith": "p/(p+p_L)",
+            "clarkson_mcgovern": "C&M MBE"
         }
         model = LinearRegression()
         model.fit(result['cumulative_gas_production'].values.reshape(-1, 1), result[y_identifier[method]].values.reshape(-1, 1))
@@ -247,7 +250,7 @@ class CoalSeamGasReservoir(Reservoir):
         
         return water_saturation
     
-    def modified_king_material_balance(self, data: pd.DataFrame):
+    def _modified_king_material_balance(self, data: pd.DataFrame):
         """
         Calculate gas material balance using Modified King's method.
 
@@ -268,7 +271,7 @@ class CoalSeamGasReservoir(Reservoir):
         
         return result
     
-    def jensen_smith_material_balance(self, data: pd.DataFrame):
+    def _jensen_smith_material_balance(self, data: pd.DataFrame):
         """
         Calculate gas material balance using Jensen and Smith method.
 
@@ -278,9 +281,29 @@ class CoalSeamGasReservoir(Reservoir):
             - cumulative_gas_production (float): Cumulative gas production [MMscf].
             - cumulative_water_production (float): Cumulative water production [bbl].
         """
+
         result = data.copy()
+
         # Calculate p/(p+pl)
         result["p/(p+p_L)"] = result.apply(lambda row: row["pressure"] / (row["pressure"] + self.rock.langmuir_pressure), axis=1)
 
-        
+        return result
+
+    def _clarkson_mcgovern_material_balance(self, data: pd.DataFrame):
+        """
+        Calculate gas material balance using Clarkson and McGovern method.
+
+        Arguments:
+        - data (pd.DataFrame): DataFrame containing the observed or simulated data.
+            - pressure (float): Pressure [psia].
+            - cumulative_gas_production (float): Cumulative gas production [MMscf].
+            - cumulative_water_production (float): Cumulative water production [bbl].
+        """
+
+        result = data.copy()
+
+        # Calculate C&M
+        result["C&M MBE"] = result.apply(lambda row: (row["pressure"] / (row["pressure"] + self.rock.langmuir_pressure)) + 
+                                         (32.037 * self.rock.porosity * (1-self.initial_water_saturation)/self.rock.langmuir_volume/self.gas.formation_volume_factor(row["pressure"], self.initial_temperature)/self.rock.density), axis=1)
+
         return result

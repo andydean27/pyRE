@@ -1,6 +1,7 @@
 from typing import Optional
 import math
 from pyRE.fluid.models import Oil, Water, Gas
+from pyRE.fluid.collections import FluidCollection
 from pyRE.rock.models import *
 from pyRE.reservoir.correlations import *
 
@@ -18,7 +19,7 @@ class Reservoir:
             net_to_gross: float,
             area: float,
             rock: Optional[Rock],
-            fluids: Optional[dict[str, object]],
+            fluids: Optional[FluidCollection],
             relative_permeability: Optional[dict[str, object]],
             **kwargs
     ):
@@ -43,8 +44,8 @@ class Reservoir:
         self.area = area
         self.bulk_volume = 43560 * area * thickness * net_to_gross  # Bulk volume of the reservoir [ft3]
         self.pore_volume = self.bulk_volume * rock.porosity  # Pore volume of the reservoir [ft3]
-        self.rock = rock or Conventional() # Delegate rock-specific behavior to the Rock object
-        self.fluids = fluids or {}
+        self.rock = rock # Delegate rock-specific behavior to the Rock object
+        self.fluids = fluids
         self.relative_permeability = relative_permeability or {}
 
 
@@ -59,6 +60,24 @@ class Reservoir:
         # Return json representation of the reservoir
         return f"{self.__class__.__name__}({{depth: {self.depth}, thickness: {self.thickness}, net_to_gross: {self.net_to_gross}, area: {self.area}, rock: {self.rock}, fluids: {self.fluids}}})"
 
+    class Saturations:
+        """
+        Class that holds the saturations of the reservoir
+        """
+        def __init__(self, **kwargs):
+            self.oil = kwargs.get('oil', None)
+            self.gas = kwargs.get('gas', None)
+            self.water = kwargs.get('water', None)
+
+        def __repr__(self):
+            return f"Saturations(oil: {self.oil}, gas: {self.gas}, water: {self.water})"
+        
+        def sum(self):
+            """
+            Calculate the sum of the saturations.
+            """
+            return sum(sat for sat in [self.oil, self.gas, self.water] if sat is not None)
+    
     class ReservoirState:
         """
         Class that holds the state of the reservoir
@@ -66,7 +85,7 @@ class Reservoir:
         def __init__(self, 
                      pressure: float, 
                      temperature: float,
-                     saturations: dict[str, float]):
+                     saturations: 'Reservoir.Saturations'):
             self.pressure = pressure
             self.temperature = temperature
             self.saturations = saturations
@@ -89,7 +108,11 @@ class Reservoir:
         self.initial_state = self.ReservoirState(
             pressure = pressure,
             temperature = temperature,
-            saturations = saturations
+            saturations = self.Saturations(
+                oil = saturations.get('oil', None),
+                gas = saturations.get('gas', None),
+                water = saturations.get('water', None)
+            )
         )
     
     def verify_reservoir_setup(self):
@@ -110,12 +133,15 @@ class Reservoir:
             raise Warning("Initial conditions must be set.")
         
         # Check saturation is set for each fluid present
-        for fluid in self.fluids.keys():
-            if fluid not in self.initial_state.saturations:
-                raise Warning(f"Initial saturation for {fluid} must be set.")
+        if self.fluids.oil is not None and self.initial_state.saturations.oil is None:
+            raise Warning("Initial oil saturation must be set if oil phase is present.")
+        if self.fluids.gas is not None and self.initial_state.saturations.gas is None:
+            raise Warning("Initial gas saturation must be set if gas phase is present.")
+        if self.fluids.water is not None and self.initial_state.saturations.water is None:
+            raise Warning("Initial water saturation must be set if water phase is present.")
         
         # Check if the initial saturations sum to 1
-        if sum(self.initial_state.saturations.values()) != 1.0:
+        if self.initial_state.saturations.sum() != 1.0:
             raise Warning("Initial saturations must sum to 1.0.")
         
     def calculate_in_place_volumes(self, state: ReservoirState):
@@ -135,14 +161,14 @@ class Reservoir:
         water_in_place = None
 
         # Calculate in-place volumes based on the fluid present
-        if "oil" in self.fluids.keys():
+        if self.fluids.oil is not None:
             oil_in_place = 0 # TODO
 
-        if "gas" in self.fluids.keys():
-            gas_in_place = self.pore_volume/1000000 * state.saturations['gas'] / self.fluids['gas'].formation_volume_factor(state.pressure, state.temperature)
+        if self.fluids.gas is not None:
+            gas_in_place = self.pore_volume/1000000 * state.saturations.gas / self.fluids.gas.formation_volume_factor(state.pressure, state.temperature)
         
-        if "water" in self.fluids.keys():
-            water_in_place = self.pore_volume/5.615 * state.saturations['water'] / self.fluids['water'].formation_volume_factor
+        if self.fluids.water is not None:
+            water_in_place = self.pore_volume/5.615 * state.saturations.water / self.fluids.water.formation_volume_factor
 
         return oil_in_place, gas_in_place, water_in_place
         
@@ -225,7 +251,7 @@ class CoalSeamGasReservoir(Reservoir):
         # Calculate sorption compressibility using the Langmuir isotherm
                 # 0.0283168 is a conversion from g/cc to tonne/scf
         sorption_compressibility = 0.028316*(
-            (self.fluids['gas'].formation_volume_factor(pressure, temperature)*self.rock.langmuir_volume*(1-self.rock.ash_fraction-self.rock.moisture_fraction)*self.rock.density*self.rock.langmuir_pressure)/
+            (self.fluids.gas.formation_volume_factor(pressure, temperature)*self.rock.langmuir_volume*(1-self.rock.ash_fraction-self.rock.moisture_fraction)*self.rock.density*self.rock.langmuir_pressure)/
             (self.rock.porosity*(pressure + self.rock.langmuir_pressure)**2)
         )
         
@@ -243,12 +269,12 @@ class CoalSeamGasReservoir(Reservoir):
         # Use initial conditions if no inputs are provided
         pressure = pressure or self.initial_state.pressure
         temperature = temperature or self.initial_state.temperature
-        water_saturation = water_saturation or self.initial_state.saturations['water']
+        water_saturation = water_saturation or self.initial_state.saturations.water
 
         # Calculate Z* using Modified King's method
         z_star = (
-            self.fluids['gas'].z(pressure, temperature) / 
-                ((self.rock.density * self.rock.langmuir_volume * (1 - self.rock.ash_fraction - self.rock.moisture_fraction) * 14.7 * temperature * self.fluids['gas'].z(pressure, temperature)) / 
+            self.fluids.gas.z(pressure, temperature) / 
+                ((self.rock.density * self.rock.langmuir_volume * (1 - self.rock.ash_fraction - self.rock.moisture_fraction) * 14.7 * temperature * self.fluids.gas.z(pressure, temperature)) / 
                  ((32.037*self.rock.porosity*536.7*(pressure+self.rock.langmuir_pressure)) + (1 - water_saturation)))
         )
         
@@ -324,8 +350,8 @@ class CoalSeamGasReservoir(Reservoir):
 
         # Calculate water saturation
         water_saturation = (
-            self.initial_state.saturations['water'] - 
-            self.fluids['water'].formation_volume_factor/(self.pore_volume/5.615)*max(0, (cumulative_water_production - cumulative_water_to_desorption))
+            self.initial_state.saturations.water - 
+            self.fluids.water.formation_volume_factor/(self.pore_volume/5.615)*max(0, (cumulative_water_production - cumulative_water_to_desorption))
         )
         
         return water_saturation
@@ -384,6 +410,6 @@ class CoalSeamGasReservoir(Reservoir):
 
         # Calculate C&M
         result["C&M MBE"] = result.apply(lambda row: (row["pressure"] / (row["pressure"] + self.rock.langmuir_pressure)) + 
-                                         (32.037 * self.rock.porosity * (1-self.initial_state.saturations['water'])/self.rock.langmuir_volume/self.fluids['gas'].formation_volume_factor(row["pressure"], self.initial_state.temperature)/self.rock.density), axis=1)
+                                         (32.037 * self.rock.porosity * (1-self.initial_state.saturations.water)/self.rock.langmuir_volume/self.fluids.gas.formation_volume_factor(row["pressure"], self.initial_state.temperature)/self.rock.density), axis=1)
 
         return result

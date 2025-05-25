@@ -4,6 +4,7 @@ from pyRE.fluid.models import Oil, Water, Gas
 from pyRE.fluid.collections import FluidCollection
 from pyRE.rock.models import *
 from pyRE.reservoir.correlations import *
+from pyRE.reservoir.state import ReservoirState, Saturations
 
 import pandas as pd
 import numpy as np
@@ -58,37 +59,7 @@ class Reservoir:
     
     def __repr__(self):
         # Return json representation of the reservoir
-        return f"{self.__class__.__name__}({{depth: {self.depth}, thickness: {self.thickness}, net_to_gross: {self.net_to_gross}, area: {self.area}, rock: {self.rock}, fluids: {self.fluids}}})"
-
-    class Saturations:
-        """
-        Class that holds the saturations of the reservoir
-        """
-        def __init__(self, **kwargs):
-            self.oil = kwargs.get('oil', None)
-            self.gas = kwargs.get('gas', None)
-            self.water = kwargs.get('water', None)
-
-        def __repr__(self):
-            return f"Saturations(oil: {self.oil}, gas: {self.gas}, water: {self.water})"
-        
-        def sum(self):
-            """
-            Calculate the sum of the saturations.
-            """
-            return sum(sat for sat in [self.oil, self.gas, self.water] if sat is not None)
-    
-    class ReservoirState:
-        """
-        Class that holds the state of the reservoir
-        """
-        def __init__(self, 
-                     pressure: float, 
-                     temperature: float,
-                     saturations: 'Reservoir.Saturations'):
-            self.pressure = pressure
-            self.temperature = temperature
-            self.saturations = saturations
+        return f"{self.__class__.__name__}({{depth: {self.depth}, thickness: {self.thickness}, net_to_gross: {self.net_to_gross}, area: {self.area}, rock: {self.rock}, fluids: {self.fluids}}})"    
 
     def set_initial_conditions(self,
                                pressure: float,
@@ -105,10 +76,10 @@ class Reservoir:
             - gas (float): Initial gas saturation.
             - water (float): Initial water saturation.
         """
-        self.initial_state = self.ReservoirState(
+        self.initial_state = ReservoirState(
             pressure = pressure,
             temperature = temperature,
-            saturations = self.Saturations(
+            saturations = Saturations(
                 oil = saturations.get('oil', None),
                 gas = saturations.get('gas', None),
                 water = saturations.get('water', None)
@@ -122,28 +93,29 @@ class Reservoir:
         """
         # Check if the rock is set
         if self.rock is None:
-            raise Warning("Rock properties must be set.")
+            raise ValueError("Rock properties must be set.")
 
         # Check if the fluids are set
         if not self.fluids:
-            raise Warning("Fluids must be set.")
+            raise ValueError("Fluids must be set.")
 
         # Check if the initial conditions are set
         if self.initial_state is None:
-            raise Warning("Initial conditions must be set.")
+            raise ValueError("Initial conditions must be set.")
         
         # Check saturation is set for each fluid present
         if self.fluids.oil is not None and self.initial_state.saturations.oil is None:
-            raise Warning("Initial oil saturation must be set if oil phase is present.")
+            raise ValueError("Initial oil saturation must be set if oil phase is present.")
         if self.fluids.gas is not None and self.initial_state.saturations.gas is None:
-            raise Warning("Initial gas saturation must be set if gas phase is present.")
+            raise ValueError("Initial gas saturation must be set if gas phase is present.")
         if self.fluids.water is not None and self.initial_state.saturations.water is None:
-            raise Warning("Initial water saturation must be set if water phase is present.")
+            raise ValueError("Initial water saturation must be set if water phase is present.")
         
         # Check if the initial saturations sum to 1
         if self.initial_state.saturations.sum() != 1.0:
-            raise Warning("Initial saturations must sum to 1.0.")
-        
+            raise ValueError("Initial saturations must sum to 1.0.")
+    
+
     def calculate_in_place_volumes(self, state: ReservoirState):
         """
         Calculate the in-place volumes of oil, gas, and water in the reservoir.
@@ -206,13 +178,13 @@ class CoalSeamGasReservoir(Reservoir):
         
         # Check if the rock is of type Coal
         if not isinstance(self.rock, Coal):
-            raise Warning("CoalSeamGasReservoir requires a CoalRock object.")
+            raise ValueError("CoalSeamGasReservoir requires a CoalRock object.")
         
         # Check no oil properties are set
-        if "oil" in self.fluids.keys():
-            raise Warning("CoalSeamGasReservoir does not support oil. Oil phase will be ignored.")
-        if "oil" in self.initial_state.saturations.keys():
-            raise Warning("CoalSeamGasReservoir does not support oil. Remove oil saturation from initial conditions")
+        if self.fluids.oil is not None:
+            raise ValueError("CoalSeamGasReservoir does not support oil. Oil phase will be ignored.")
+        if self.initial_state.saturations.oil is not None:
+            raise ValueError("CoalSeamGasReservoir does not support oil. Remove oil saturation from initial conditions")
     
     def calculate_in_place_volumes(self, state):
 

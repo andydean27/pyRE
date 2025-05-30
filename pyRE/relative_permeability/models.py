@@ -1,12 +1,17 @@
 from scipy.interpolate import interp1d
 from pyRE.reservoir.state import Saturations
+from dataclasses import dataclass
 
 class RelativePermeability:
     """
     Base class for relative permeability models
     """
 
-    def __init__(self):
+    def __init__(
+            self,
+            oil_curve: dict = None,
+            gas_curve: dict = None,
+            water_curve: dict = None):
         """
         Default behaviour returns a relative permeability of 1 for all phases
         """
@@ -40,36 +45,30 @@ class BrooksCoreyRelativePermeability(RelativePermeability):
 
     def __init__(
             self,
-            phase_names: list,
-            phase_minimum_saturations: list,
-            phase_exponents: list,
-            phase_max_relative_permeabilities: list):
+            oil_curve: 'BrooksCoreyRelativePermeability.Curve' = None,
+            gas_curve: 'BrooksCoreyRelativePermeability.Curve' = None,
+            water_curve: 'BrooksCoreyRelativePermeability.Curve' = None):
         """
         Initialise the Brooks-Corey relative permeability model.
 
         Arguments:
-        - phase_names (list): List of phase names (e.g., ['oil', 'gas', 'water']).
-        - phase_minimum_saturations (list): List of minimum saturations for each phase.
-        - phase_exponents (list): List of exponents for each phase.
-        - phase_max_relative_permeabilities (list): List of maximum relative permeabilities for each phase.
+        - oil_curve: Curve object for the oil phase.
+        - gas_curve: Curve object for the gas phase.
+        - water_curve: Curve object for the water phase.
+        Each curve should contain:
+        - minimum_saturation (float): Minimum saturation for the phase.
+        - exponent (float): Exponent for the relative permeability calculation.
+        - max_relative_permeability (float): Maximum relative permeability for the phase.
         """
-        
-        if len(phase_names) != len(phase_minimum_saturations) or \
-              len(phase_names) != len(phase_exponents) or \
-                len(phase_names) != len(phase_max_relative_permeabilities):
-            raise ValueError("All input lists must have the same length.")
 
-        # Ensure all phase names are unique
-        if len(set(phase_names)) != len(phase_names):
-            raise ValueError("Phase names must be unique.")
+        self.oil_curve = oil_curve or None
+        self.gas_curve = gas_curve or None
+        self.water_curve = water_curve or None
 
-        self.phase_names = phase_names
-        self.phase_minimum_saturations = phase_minimum_saturations
-        self.phase_exponents = phase_exponents
-        self.phase_max_relative_permeabilities = phase_max_relative_permeabilities
-
-        # Set phase indices
-        self.phase_indices = {name: i for i, name in enumerate(phase_names)}
+        # Calculate total irreducible saturation
+        self.total_irreducible_saturation = sum(
+            curve.minimum_saturation for curve in [self.oil_curve, self.gas_curve, self.water_curve] if curve is not None
+        )
 
         # Initialise relative permeabilities to None
         self.oil = None
@@ -77,56 +76,23 @@ class BrooksCoreyRelativePermeability(RelativePermeability):
         self.water = None
 
     def __repr__(self):
-        return (f"{self.__class__.__name__}(phase_names: {self.phase_names}, "
-                f"phase_minimum_saturations: {self.phase_minimum_saturations}, "
-                f"phase_exponents: {self.phase_exponents}, "
-                f"phase_max_relative_permeabilities: {self.phase_max_relative_permeabilities})")
-    def add_phase(self, name: str, minimum_saturation: float, exponent: float, max_relative_permeability: float):
-        """
-        Add a new phase to the Brooks-Corey model.
-        
-        Arguments:
-        - name: str - Name of the phase (e.g., 'oil', 'gas', 'water').
-        - minimum_saturation: float - Minimum saturation for the phase.
-        - exponent: float - Exponent for the phase.
-        - max_relative_permeability: float - Maximum relative permeability for the phase.
-        """
-        if name in self.phase_indices:
-            raise ValueError(f"Phase '{name}' already exists in the model.")
-        
-        self.phase_names.append(name)
-        self.phase_minimum_saturations.append(minimum_saturation)
-        self.phase_exponents.append(exponent)
-        self.phase_max_relative_permeabilities.append(max_relative_permeability)
-        
-        # Update phase indices
-        self.phase_indices[name] = len(self.phase_names) - 1
+        return f"{self.__class__.__name__}(oil_curve: {self.oil_curve}, gas_curve: {self.gas_curve}, water_curve: {self.water_curve})"
     
-    def remove_phase(self, name: str):
+    @dataclass
+    class Curve:
         """
-        Remove a phase from the Brooks-Corey model.
+        Data class to hold the parameters for a relative permeability curve.
         
-        Arguments:
-        - name: str - Name of the phase to remove.
-        
-        Raises:
-        - ValueError: If the phase does not exist in the model.
+        Attributes:
+        - minimum_saturation (float): Minimum saturation for the phase.
+        - exponent (float): Exponent for the relative permeability calculation.
+        - max_relative_permeability (float): Maximum relative permeability for the phase.
         """
-        if name not in self.phase_indices:
-            raise ValueError(f"Phase '{name}' does not exist in the model.")
-        
-        phase_index = self.phase_indices[name]
-        
-        # Remove phase data
-        del self.phases[phase_index]
-        del self.phase_minimum_saturations[phase_index]
-        del self.phase_exponents[phase_index]
-        del self.phase_max_relative_permeabilities[phase_index]
-        
-        # Update phase indices
-        del self.phase_indices[name]
-        for i in range(phase_index, len(self.phase_names)):
-            self.phase_indices[self.phase_names[i]] = i
+        minimum_saturation: float
+        exponent: float
+        max_relative_permeability: float
+        def __repr__(self):
+            return f"Curve(minimum_saturation: {self.minimum_saturation}, exponent: {self.exponent}, max_relative_permeability: {self.max_relative_permeability})"
 
     def calculate_phase_relative_permeability(self, phase_name: str, saturation: float):
         """
@@ -144,23 +110,21 @@ class BrooksCoreyRelativePermeability(RelativePermeability):
         if saturation is None:
             return None
         
-        phase_index = self.phase_indices.get(phase_name)
-        if phase_index is None:
-            raise ValueError(f"Phase '{phase_name}' not found in the model phases.")
+        # Get the phase curve parameters
+        curve = getattr(self, f"{phase_name}_curve", None)
+        if curve is None:
+            raise ValueError(f"No curve defined for phase '{phase_name}'.")
 
-        min_saturation = self.phase_minimum_saturations[phase_index]
-        exponent = self.phase_exponents[phase_index]
-        max_relative_permeability = self.phase_max_relative_permeabilities[phase_index]
-
-        # Total irreducible saturation for all phases
-        total_irreducible_saturation = sum(self.phase_minimum_saturations)
+        min_saturation = curve.minimum_saturation
+        exponent = curve.exponent
+        max_relative_permeability = curve.max_relative_permeability
 
         # Ensure saturation is above minimum
         if saturation < min_saturation:
             return 0.0
         
         # Calculate relative permeability
-        return min(1, max_relative_permeability * ((saturation - min_saturation) / (1.0 - total_irreducible_saturation)) ** exponent)
+        return min(1, max_relative_permeability * ((saturation - min_saturation) / (1.0 - self.total_irreducible_saturation)) ** exponent)
 
     def calculate(self, saturations: Saturations):
         """
@@ -181,11 +145,9 @@ class BrooksCoreyRelativePermeability(RelativePermeability):
         for phase, saturation in zip(['oil', 'gas', 'water'], [saturations.oil, saturations.gas, saturations.water]):
             if saturation is None:
                 # Check if a curve is defined for the phase
-                if phase in self.phase_indices:
+                if getattr(self, f"{phase}_curve", None) is not None:
                     raise ValueError(f"{phase} is not present (saturation None), but relative permeability curves are defined.")
             else:
-                if phase not in self.phase_indices:
-                    raise ValueError(f"{phase} phase not found in the model phases.")
-                phase_index = self.phase_indices[phase]
-                setattr(self, phase, self.calculate_phase_relative_permeability(saturation, phase_index))
+
+                setattr(self, phase, self.calculate_phase_relative_permeability(phase, saturation))
 

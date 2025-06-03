@@ -5,6 +5,7 @@ from pyRE.fluid.collections import FluidCollection
 from pyRE.rock.models import *
 from pyRE.reservoir.correlations import *
 from pyRE.reservoir.state import ReservoirState, Saturations
+from pyRE.relative_permeability.models import RelativePermeability
 
 import pandas as pd
 import numpy as np
@@ -19,9 +20,9 @@ class Reservoir:
             thickness: float,
             net_to_gross: float,
             area: float,
-            rock: Optional[Rock],
-            fluids: Optional[FluidCollection],
-            relative_permeability: Optional[dict[str, object]],
+            rock: Rock,
+            fluids: FluidCollection,
+            relative_permeability: Optional[RelativePermeability],
             **kwargs
     ):
         """
@@ -35,9 +36,9 @@ class Reservoir:
         - pressure (float): Pressure [psia].
         - temperature (float): Temperature [Rankine].
         - rock (Rock): Rock properties object.
-        - oil (Oil, optional): Oil object.
-        - gas (Gas, optional): Gas object.
-        - water (Water, optional): Water object.
+        - fluids (FluidCollection): Collection of fluid models (Oil, Gas, Water).
+        - relative_permeability (RelativePermeability, optional): Relative permeability model.
+
         """
         self.depth = depth
         self.thickness = thickness
@@ -47,7 +48,7 @@ class Reservoir:
         self.pore_volume = self.bulk_volume * rock.porosity  # Pore volume of the reservoir [ft3]
         self.rock = rock # Delegate rock-specific behavior to the Rock object
         self.fluids = fluids
-        self.relative_permeability = relative_permeability or {}
+        self.relative_permeability = relative_permeability | None
 
 
         # Initialise initial conditions
@@ -114,6 +115,31 @@ class Reservoir:
         # Check if the initial saturations sum to 1
         if self.initial_state.saturations.sum() != 1.0:
             raise ValueError("Initial saturations must sum to 1.0.")
+        
+    def _validate_realtive_permeability(self):
+        """
+        Validate that the relative permeability model is set up correctly.
+        This includes checking if the relative permeability model is set, if it is of the correct type and if the curves set match the fluids present.
+        """
+        if self.relative_permeability is None:
+            raise ValueError("Relative permeability model must be set for any flow simulations.")
+        
+        if not isinstance(self.relative_permeability, RelativePermeability):
+            raise TypeError(f"Expected RelativePermeability model, got {type(self.relative_permeability)}")
+        
+        # Check if the relative permeability curves are set for each fluid present
+        if self.fluids.oil is not None and self.relative_permeability.oil_curve is None:
+            raise ValueError("Relative permeability curve must be set for oil phase if oil is present")
+        if self.fluids.oil is None and self.relative_permeability.oil_curve is not None:
+            raise ValueError("Relative permeability curve for oil phase is set, but oil phase is not present in the reservoir")
+        if self.fluids.gas is not None and self.relative_permeability.gas_curve is None:
+            raise ValueError("Relative permeability curve must be set for gas phase if gas is present")
+        if self.fluids.gas is None and self.relative_permeability.gas_curve is not None:
+            raise ValueError("Relative permeability curve for gas phase is set, but gas phase is not present in the reservoir")
+        if self.fluids.water is not None and self.relative_permeability.water_curve is None:
+            raise ValueError("Relative permeability curve must be set for water phase if water is present")
+        if self.fluids.water is None and self.relative_permeability.water_curve is not None:
+            raise ValueError("Relative permeability curve for water phase is set, but water phase is not present in the reservoir")
     
 
     def calculate_in_place_volumes(self, state: ReservoirState):
@@ -170,12 +196,11 @@ class CoalSeamGasReservoir(Reservoir):
         # Check if the rock is of type Coal
         if not isinstance(self.rock, Coal):
             raise ValueError("CoalSeamGasReservoir requires a CoalRock object.")
-    
+            
     def verify_reservoir_setup(self):
         super().verify_reservoir_setup()
 
         # Coal specific checks
-        
         # Check if the rock is of type Coal
         if not isinstance(self.rock, Coal):
             raise ValueError("CoalSeamGasReservoir requires a CoalRock object.")

@@ -13,9 +13,9 @@ class Water:
 
     def __init__(
             self,
-            formation_volume_factor: float = 1,
-            viscosity: float = 0.75,
-            density: float = 1
+            formation_volume_factor_correlation: lambda p, t: 1.0,
+            viscosity_correlation: lambda p, t: 0.75,
+            density_correlation: lambda p, t: 1.0
             ):
         """
         Initialise water object
@@ -25,14 +25,70 @@ class Water:
             mu : float : Viscosity [cP]
             density : float : Density [g/cm3]
         """
-        self.formation_volume_factor = formation_volume_factor
-        self.viscosity = viscosity
-        self.density = density
+        self.formation_volume_factor_correlation = formation_volume_factor_correlation
+        self.viscosity_correlation = viscosity_correlation
+        self.density_correlation = density_correlation
 
+    def formation_volume_factor(
+            self,
+            pressure: float,
+            temperature: float,
+            ):
+        """
+        Calculate water formation volume factor
+        
+        Arguments
+            pressure : float : Pressure [psia]
+            temperature : float : Temperature [Rankine]
+
+        Returns
+            Bw : float : Formation volume factor [bbl/STB]
+        """
+        return self.formation_volume_factor_correlation(pressure, temperature)
+    
+    def viscosity(
+            self,
+            pressure: float,
+            temperature: float,
+            ):
+        """
+        Calculate water viscosity
+        
+        Arguments
+            pressure : float : Pressure [psia]
+            temperature : float : Temperature [Rankine]
+
+        Returns
+            mu : float : Viscosity [cP]
+        """
+        return self.viscosity_correlation(pressure, temperature)
+    
+    def density(
+            self,
+            pressure: float,
+            temperature: float,
+            ):
+        """
+        Calculate water density
+        
+        Arguments
+            pressure : float : Pressure [psia]
+            temperature : float : Temperature [Rankine]
+
+        Returns
+            density : float : Density [g/cm3]
+        """
+        return self.density_correlation(pressure, temperature)
+        
 
 class Oil:
-    pass
-
+    
+    def __init__(
+            self
+    ):
+        raise NotImplementedError("Oil model is not implemented yet. Please use a specific oil model class.")
+    
+    
 class Gas:
     """
     Gas object class

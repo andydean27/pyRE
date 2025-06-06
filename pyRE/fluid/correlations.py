@@ -3,14 +3,14 @@ import math
 
 # Z-factor correlations
 
-def STANDINGKATZ(P: float, T: float, gas_obj):
+def StandingKatz(P: float, T: float, gas_obj):
     """
     Standing-Katz Z-factor correlation
     
     Arguments
-        P : float : Pressure [psia]
-        T : float : Temperature [Rankine]
-        gas_obj : gas : Gas model
+        - P : float : Pressure [psia]
+        - T : float : Temperature [Rankine]
+        - gas_obj : gas : Gas model
     """
 
     # Calculate pseudoreduced pressure and temperature
@@ -34,14 +34,14 @@ def DRANCHUKABOUKHAIF(P: float, T: float, Pc: float, Tc: float):
 
 # Viscosity
 
-def LEEGONZALEZEAKIN(P: float, T: float, gas_obj):
+def LeeGonzalezEakin(P: float, T: float, gas_obj):
     """
     Lee-Gonzalez-Eakin gas viscosity correlation
     
-    Arguments
-        P : float : Pressure [psia]
-        T : float : Temperature [Rankine]
-        gas_obj : gas : Gas model
+    Arguments:
+        - P : float : Pressure [psia]
+        - T : float : Temperature [Rankine]
+        - gas_obj : gas : Gas model
     """
     x = 2.57 + 1914.5 / T + 0.0095 * gas_obj.molar_mass
     Y = 1.11 + 0.04 * x

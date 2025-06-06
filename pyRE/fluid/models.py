@@ -13,9 +13,9 @@ class Water:
 
     def __init__(
             self,
-            formation_volume_factor_correlation: lambda p, t: 1.0,
-            viscosity_correlation: lambda p, t: 0.75,
-            density_correlation: lambda p, t: 1.0
+            formation_volume_factor_correlation = lambda p, t: 1.0,
+            viscosity_correlation = lambda p, t: 0.75,
+            density_correlation = lambda p, t: 1.0
             ):
         """
         Initialise water object
@@ -109,8 +109,8 @@ class Gas:
             critical_pressure: float = 673,
             critical_temperature: float = 343,
             molar_mass: float = 16.04,
-            z_correlation = STANDINGKATZ,
-            viscosity_correlation = LEEGONZALEZEAKIN
+            z_correlation = StandingKatz,
+            viscosity_correlation = LeeGonzalezEakin
             ):
         """
         Initialise gas object
@@ -243,6 +243,3 @@ class Gas:
             Pseudo-pressure : float : Pseudopressure
         """
         pass
-
-
-    

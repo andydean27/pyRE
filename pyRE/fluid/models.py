@@ -13,18 +13,24 @@ class Water:
 
     def __init__(
             self,
-            formation_volume_factor_correlation = lambda p, t: 1.0,
-            viscosity_correlation = lambda p, t: 0.75,
-            density_correlation = lambda p, t: 1.0
+            salinity: float = 0.0,
+            formation_volume_factor_correlation = lambda p, t, **kwargs: 1.0,
+            viscosity_correlation = lambda p, t, **kwargs: 0.75,
+            density_correlation = lambda p, t, **kwargs: 1.0
             ):
         """
         Initialise water object
         
         Arguments
-            Bw : float : Formation volume factor [bbl/STB]
-            mu : float : Viscosity [cP]
-            density : float : Density [g/cm3]
+            salinity : float : Salinity of water [ppm]
+            formation_volume_factor_correlation : function : Formation volume factor correlation
+                options: lambda p, t, **kwargs: 1.0 (default, constant value)
+            viscosity_correlation : function : Viscosity correlation
+                options: lambda p, t, **kwargs: 0.75 (default, constant value)
+            density_correlation : function : Density correlation
+                options: lambda p, t, **kwargs: 1.0 (default, constant value)
         """
+        self.salinity = salinity
         self.formation_volume_factor_correlation = formation_volume_factor_correlation
         self.viscosity_correlation = viscosity_correlation
         self.density_correlation = density_correlation
@@ -44,7 +50,8 @@ class Water:
         Returns
             Bw : float : Formation volume factor [bbl/STB]
         """
-        return self.formation_volume_factor_correlation(pressure, temperature)
+        return self.formation_volume_factor_correlation(pressure, temperature,
+                                                        salinity = self.salinity)
     
     def viscosity(
             self,
@@ -61,7 +68,8 @@ class Water:
         Returns
             mu : float : Viscosity [cP]
         """
-        return self.viscosity_correlation(pressure, temperature)
+        return self.viscosity_correlation(pressure, temperature,
+                                          salinity = self.salinity)
     
     def density(
             self,
@@ -78,7 +86,8 @@ class Water:
         Returns
             density : float : Density [g/cm3]
         """
-        return self.density_correlation(pressure, temperature)
+        return self.density_correlation(pressure, temperature,
+                                        salinity = self.salinity)
         
 
 class Oil:
@@ -145,7 +154,9 @@ class Gas:
         Returns
             z : float : z-factor
         """
-        return self.z_correlation(pressure, temperature, self)
+        return self.z_correlation(pressure, temperature, 
+                                  critical_pressure = self.critical_pressure, 
+                                  critical_temperature = self.critical_temperature)
     
     def viscosity(
             self,
@@ -163,7 +174,9 @@ class Gas:
             viscosity : float : Viscosity [cP]
         """
         
-        return self.viscosity_correlation(pressure, temperature, self)
+        return self.viscosity_correlation(pressure, temperature, 
+                                          molar_mass = self.molar_mass,
+                                          density = self.density(pressure, temperature))
     
     def formation_volume_factor(
             self,
@@ -196,7 +209,7 @@ class Gas:
             temperature : float : Temperature [Rankine]
 
         Returns
-            density : float : Density [g/cm3]
+            density : float : Density 
         """
         return 144 * pressure * self.molar_mass / self.z(pressure, temperature) / 1545.349 / temperature
     

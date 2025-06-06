@@ -68,3 +68,25 @@ class ReservoirState:
         Validate the state of the reservoir.
         """
         self.saturations._validate_saturations()
+
+class SimulationState:
+    """
+    Class that holds the state of the simulation
+    """
+    def __init__(self, 
+                    reservoir_state: ReservoirState,
+                    time: float,
+                    cumulative_oil_production: float,
+                    cumulative_gas_production: float,
+                    cumulative_water_production: float):
+        """
+        Initialises the SimulationState class
+        Arguments:
+            reservoir_state : ReservoirState : ReservoirState object containing the current state of the reservoir
+            time : float : Time in days since the start of the simulation
+        """
+        self.reservoir_state = reservoir_state
+        self.time = time
+
+    def __repr__(self):
+        return f"SimulationState(reservoir_state: {self.reservoir_state}, time: {self.time})"

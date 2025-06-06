@@ -3,12 +3,20 @@ import math
 from pyRE.fluid.models import Oil, Water, Gas
 from pyRE.fluid.collections import FluidCollection
 from pyRE.rock.models import *
-from pyRE.reservoir.correlations import *
 from pyRE.reservoir.state import ReservoirState, Saturations
 from pyRE.relative_permeability.models import RelativePermeability
 
 import pandas as pd
 import numpy as np
+
+
+shape_factors = {
+    'circular': 31.62,
+    'hexagonal': 31.6,
+    'square': 30.8828,
+    'equilateral_triangle': 27.6,
+}
+
 
 class Reservoir:
     """
@@ -48,7 +56,7 @@ class Reservoir:
         self.pore_volume = self.bulk_volume * rock.porosity  # Pore volume of the reservoir [ft3]
         self.rock = rock # Delegate rock-specific behavior to the Rock object
         self.fluids = fluids
-        self.relative_permeability = relative_permeability | None
+        self.relative_permeability = relative_permeability
 
 
         # Initialise initial conditions
@@ -61,6 +69,7 @@ class Reservoir:
     def __repr__(self):
         # Return json representation of the reservoir
         return f"{self.__class__.__name__}({{depth: {self.depth}, thickness: {self.thickness}, net_to_gross: {self.net_to_gross}, area: {self.area}, rock: {self.rock}, fluids: {self.fluids}}})"    
+
 
     def set_initial_conditions(self,
                                pressure: float,
@@ -141,7 +150,6 @@ class Reservoir:
         if self.fluids.water is None and self.relative_permeability.water_curve is not None:
             raise ValueError("Relative permeability curve for water phase is set, but water phase is not present in the reservoir")
     
-
     def calculate_in_place_volumes(self, state: ReservoirState):
         """
         Calculate the in-place volumes of oil, gas, and water in the reservoir.
@@ -166,7 +174,7 @@ class Reservoir:
             gas_in_place = self.pore_volume/1000000 * state.saturations.gas / self.fluids.gas.formation_volume_factor(state.pressure, state.temperature)
         
         if self.fluids.water is not None:
-            water_in_place = self.pore_volume/5.615 * state.saturations.water / self.fluids.water.formation_volume_factor
+            water_in_place = self.pore_volume/5.615 * state.saturations.water / self.fluids.water.formation_volume_factor(state.pressure, state.temperature)
 
         return oil_in_place, gas_in_place, water_in_place
         
@@ -185,6 +193,164 @@ class Reservoir:
         self.initial_water_in_place = water_inplace
         
 
+    # Vertical well inflow equations
+    def _pseudo_steady_flow_rate(
+            self,
+            state: ReservoirState,
+            fluid: str,
+            well_flowing_pressure: float,
+            wellbore_radius: float,
+            skin: float,
+            shape_factor: str = 'circular',
+            pressure_squared_approximation: bool = True) -> float:
+        """
+        Calculate the pseudo-steady flow rate for a vertical well.
+        
+        Arguments:
+        - state: ReservoirState object containing current state of the reservoir (pressure, temperature, saturation).
+        - fluid: fluid phase for which the rate is calculate ('oil', 'gas', or 'water').
+        - well_flowing_pressure: Flowing pressure at the wellbore in psi.
+        - wellbore_radius: Radius of the wellbore in feet.
+        - skin: Skin factor of the well.
+        - shape_factor: Shape factor for the wellbore, default is 31.62 for circular wells.
+            - Can also be a string ('circular', 'hexagonal', 'square', 'equilateral_triangle') or a float value.
+            - https://onepetro.org/spe/general-information/1577/Fluid-flow-through-permeable-media?searchresult=1
+        - pressure_squared_approximation: If True, uses the pressure squared approximation for gas pseudo pressure.
+        
+        Returns:
+        - Flow rate in STB/day for oil, SCF/day for gas, or BWPD for water.
+        """
+
+
+        shape_factor = shape_factors.get(shape_factor.lower(), 31.62)
+        if shape_factor is None:
+            raise ValueError(f"Invalid shape factor: {shape_factor}")
+ 
+        
+        # Check if flowing pressure is below reservoir pressure
+        if well_flowing_pressure > state.pressure:
+            return 0.0
+
+
+        # Get the fluid model
+        if fluid == 'oil':
+            if self.fluids.oil is None:
+                raise ValueError("Oil model is not defined in the reservoir.")
+            fluid = self.fluids.oil
+        elif fluid == 'gas':
+            if self.fluids.gas is None:
+                raise ValueError("Gas model is not defined in the reservoir.")
+            fluid = self.fluids.gas
+        elif fluid == 'water':
+            if self.fluids.water is None:
+                raise ValueError("Water model is not defined in the reservoir.")
+            fluid = self.fluids.water
+        else:
+            raise ValueError(f"Invalid fluid type: {fluid}. Must be 'oil', 'gas', or 'water'.")
+
+        # Calculate relative permeabilities
+        self.relative_permeability.calculate(state.saturations)
+        if fluid == self.fluids.oil:
+            relative_permeability = self.relative_permeability.oil
+        elif fluid == self.fluids.gas:
+            relative_permeability = self.relative_permeability.gas
+        elif fluid == self.fluids.water:
+            relative_permeability = self.relative_permeability.water
+        else:
+            raise ValueError(f"Fluid {fluid} not found in the reservoir's relative permeability model.")
+        
+        # Calculate for gas
+        if isinstance(fluid, Gas):
+            if pressure_squared_approximation:
+                return (
+                    ((state.pressure**2 - well_flowing_pressure**2) * self.rock.permeability * relative_permeability * self.thickness * self.net_to_gross) /
+                    (1422 * state.temperature * fluid.z(state.pressure, state.temperature) * fluid.viscosity(state.pressure, state.temperature)) / 
+                    (0.5 * math.log(10.06 * self.area * 43560 / (shape_factor * wellbore_radius**2)) - 0.75 + skin)
+                )
+            else:
+                raise NotImplementedError("pseudo pressure not implemented yet")
+            
+        # Calculate for oil or water
+        return (
+            ((state.pressure - well_flowing_pressure) * self.rock.permeability * relative_permeability * self.thickness * self.net_to_gross) /
+            (141.2 * fluid.formation_volume_factor(state.pressure, state.temperature) * fluid.viscosity(state.pressure, state.temperature)) / 
+            (0.5 * math.log(10.06 * self.area * 43560 / (shape_factor * wellbore_radius**2)) - 0.75 + skin)
+        )
+
+    def inflow_performance_relationship(
+            self,
+            state: ReservoirState = None,
+            flow_behaviour: str = "pseudo_steady",
+            **kwargs
+            ):
+        """
+        Calculate the inflow performance relationship for the reservoir.
+        
+        Arguments:
+        - state (ReservoirState): The state of the reservoir. If not provided, uses the initial state.
+        - flow_behaviour (str): The flow behaviour to use for the calculation.
+            Supported: 'pseudo_steady'.
+        - kwargs: Additional keyword arguments for the inflow equation."
+            - wellbore_radius (float): Radius of the wellbore [ft]. Default is 0.5 ft.
+            - skin (float): Skin factor of the well. Default is 0.
+            - shape_factor (str | float): Shape factor for the wellbore. Default is 'circular'.
+                Can also be a string ('circular', 'hexagonal', 'square', 'equilateral_triangle') or a float value.
+            - pressure_squared_approximation (bool): If True, uses the pressure squared approximation for gas pseudo pressure. Default is True.
+        
+        Returns:
+        - pd.DataFrame: DataFrame containing the inflow performance relationship.
+            - pressure (float): Flowing pressure at the wellbore [psia].
+            - oil_flow_rate (float): Flow rate of oil [STB/day].
+            - gas_flow_rate (float): Flow rate of gas [SCF/day].
+            - water_flow_rate (float): Flow rate of water [BWPD].
+        """
+        # Verify reservoir setup
+        self.verify_reservoir_setup()
+
+        # If state is not provided, use initial state
+        state = state or self.initial_state
+
+        # Get the inflow equation from flow behaviour
+        if flow_behaviour == "pseudo_steady":
+            inflow_equation = self._pseudo_steady_flow_rate
+        else:
+            raise ValueError(f"Invalid flow behaviour: {flow_behaviour}. Supported: 'pseudo_steady'.")
+        
+        # Generate flowing pressure range
+        n = kwargs.get("n", 20)
+        pressure_range = np.linspace(
+            0, 
+            state.pressure, 
+            num=n
+        )
+
+        # Calculate flow rates for each pressure in the range for each phase present in the reservoir
+        flow_rates = {}
+        for fluid in ['oil', 'gas', 'water']:
+            if getattr(self.fluids, fluid) is not None:
+                flow_rates[fluid] = [
+                    inflow_equation(
+                        state=state,
+                        fluid=fluid,
+                        well_flowing_pressure=pressure,
+                        wellbore_radius=kwargs.get("wellbore_radius", 0.5),
+                        skin=kwargs.get("skin", 0),
+                        shape_factor=kwargs.get("shape_factor", "circular"),
+                        pressure_squared_approximation=kwargs.get("pressure_squared_approximation", True)
+                    ) for pressure in pressure_range
+                ]
+
+        # Create a DataFrame to hold the results
+        results = pd.DataFrame({
+            "pressure": pressure_range,
+            **{f"{fluid}_rate": flow_rates[fluid] for fluid in flow_rates}
+        })
+        # Set index to pressure
+        results.set_index("pressure", inplace = True)
+
+        return results
+
+            
 
 class CoalSeamGasReservoir(Reservoir):
     """
@@ -196,7 +362,8 @@ class CoalSeamGasReservoir(Reservoir):
         # Check if the rock is of type Coal
         if not isinstance(self.rock, Coal):
             raise ValueError("CoalSeamGasReservoir requires a CoalRock object.")
-            
+
+
     def verify_reservoir_setup(self):
         super().verify_reservoir_setup()
 
@@ -277,9 +444,9 @@ class CoalSeamGasReservoir(Reservoir):
         
         return z_star
     
-    ##############################
+
     # Material balance methods
-    ##############################
+
     def gas_material_balance(self, data: pd.DataFrame, method: str = "modified_king"):
         """
         Calculate the material balance data and plot (optional) for a set of given observed or simulated data
@@ -287,6 +454,7 @@ class CoalSeamGasReservoir(Reservoir):
         Arguments:
         - data (pd.DataFrame): DataFrame containing the observed or simulated data.
             - pressure (float): Pressure [psia].
+            - temperature (float, optional): Temperature [Rankine]. If not provided, uses initial temperature.
             - cumulative_gas_production (float): Cumulative gas production [MMscf].
             - cumulative_water_production (float): Cumulative water production [bbl].
         
@@ -302,6 +470,10 @@ class CoalSeamGasReservoir(Reservoir):
         for col in required_columns:
             if col not in data.columns:
                 raise ValueError(f"Missing required column: {col}")
+            
+        # Fill temperature with initial temperature if not provided
+        if "temperature" not in data.columns:
+            data["temperature"] = self.initial_state.temperature
 
         # Calculate the material balance using the specified method
         if method == "modified_king":
@@ -330,9 +502,8 @@ class CoalSeamGasReservoir(Reservoir):
             "model": model,
             "gas_in_place": x_intercept
         }
-
     
-    def _modified_king_water_saturation(self, cumulative_water_production: float):
+    def _modified_king_water_saturation(self, cumulative_water_production: float, pressure: float = None, temperature: float = None):
         """
         Calculate the water saturation using Modified King's method. (largely ignores water and formation compressibilityies)
         
@@ -342,13 +513,17 @@ class CoalSeamGasReservoir(Reservoir):
         Returns:
         - water_saturation (float): Water saturation.
         """
+        # Use initial conditions if no inputs are provided
+        pressure = pressure or self.initial_state.pressure
+        temperature = temperature or self.initial_state.temperature
+
         # Calculate water required to produce to reach critical desorption pressure
         cumulative_water_to_desorption = self.pore_volume/5.615 * self.rock.compressibility * max(0, (self.initial_state.pressure - self.rock.critical_desorption_pressure))
 
         # Calculate water saturation
         water_saturation = (
             self.initial_state.saturations.water - 
-            self.fluids.water.formation_volume_factor/(self.pore_volume/5.615)*max(0, (cumulative_water_production - cumulative_water_to_desorption))
+            self.fluids.water.formation_volume_factor(pressure, temperature)/(self.pore_volume/5.615)*max(0, (cumulative_water_production - cumulative_water_to_desorption))
         )
         
         return water_saturation
@@ -360,13 +535,14 @@ class CoalSeamGasReservoir(Reservoir):
         Arguments:
         - data (pd.DataFrame): DataFrame containing the observed or simulated data.
             - pressure (float): Pressure [psia].
+            - temperature (float): Temperature [Rankine].
             - cumulative_gas_production (float): Cumulative gas production [MMscf].
             - cumulative_water_production (float): Cumulative water production [bbl].
         """
         
         result = data.copy()
         # Calculate water saturation
-        result["water_saturation"] = result.apply(lambda row: self._modified_king_water_saturation(row["cumulative_water_production"]), axis=1)
+        result["water_saturation"] = result.apply(lambda row: self._modified_king_water_saturation(row["cumulative_water_production"], row["pressure"] or None, row["temperature"] or None), axis=1)
         # Calculate Z*
         result["z*"] = result.apply(lambda row: self.z_star(pressure = row["pressure"],water_saturation = row["water_saturation"]), axis=1)
         # Calculate P/z*
@@ -381,6 +557,7 @@ class CoalSeamGasReservoir(Reservoir):
         Arguments:
         - data (pd.DataFrame): DataFrame containing the observed or simulated data.
             - pressure (float): Pressure [psia].
+            - temperature (float): Temperature [Rankine].
             - cumulative_gas_production (float): Cumulative gas production [MMscf].
             - cumulative_water_production (float): Cumulative water production [bbl].
         """
@@ -399,6 +576,7 @@ class CoalSeamGasReservoir(Reservoir):
         Arguments:
         - data (pd.DataFrame): DataFrame containing the observed or simulated data.
             - pressure (float): Pressure [psia].
+            - temperature (float): Temperature [Rankine].
             - cumulative_gas_production (float): Cumulative gas production [MMscf].
             - cumulative_water_production (float): Cumulative water production [bbl].
         """
@@ -410,3 +588,4 @@ class CoalSeamGasReservoir(Reservoir):
                                          (32.037 * self.rock.porosity * (1-self.initial_state.saturations.water)/self.rock.langmuir_volume/self.fluids.gas.formation_volume_factor(row["pressure"], self.initial_state.temperature)/self.rock.density), axis=1)
 
         return result
+
